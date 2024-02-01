@@ -1,8 +1,10 @@
+from mailer import Mailer
 import paramiko, os
 import time
-import smtplib
+# import smtplib
 from datetime import datetime
-import requests, json
+import requests
+# , json
 from pprint import pprint
 import configparser
 
@@ -31,7 +33,7 @@ def acquire_token():
     
     try:
         token = token_json['access_token']
-        # print(token)
+        
     except:
         token = 'error'
 
@@ -42,13 +44,9 @@ def access_endpoint(token, endpoint):
     bearer = 'Bearer ' + token
     auth = {'Authorization': bearer}
     url = base_url + endpoint['path'] + endpoint['expansion']
-    # print('url ', url)
     data = requests.get(url, headers=auth)
     data.close
     json = data.json()
-    # print(json)
-    # for item in json:
-        # print('--------------------item \n', item)    
 
     return json
 
@@ -61,7 +59,6 @@ def iterate_json(endpoint, json_data, filepath, today):
         xml = '<' + endpoint['path'] +'>\n'
         for item in json_data:
             counter += 1
-            # print('--------------------item \n', item)    
 
             if item['type_label'] == 'Subject Guide':
                 # common fields
@@ -110,7 +107,6 @@ def iterate_json(endpoint, json_data, filepath, today):
     except Exception as e:
         json_results = "Json iteration failed. Exception ", e
 
-
 # sftp xml file to server01
 def sftp_libguide_xml(sftp_host, sftp_port, sftp_user_id, sftp_password, sftp_destination_dir, local_dir):
 
@@ -151,27 +147,27 @@ def sftp_libguide_xml(sftp_host, sftp_port, sftp_user_id, sftp_password, sftp_de
         print("Error ", err.args)
 
     finally:
-        print("Finally")
+        # print("Finally")
 
-def email_notification(msg): 
+# def email_notification(msg): 
 
-    email_results = '\r\nEmail\r\n'    
+#     email_results = '\r\nEmail\r\n'    
 
-    try:
-        uk_smtp_server = 'uksmtp.uky.edu:25'
-        sender = 'bront.davis@uky.edu'
-        msg = 'SpringShare to XML message...'
+#     try:
+#         uk_smtp_server = 'uksmtp.uky.edu:25'
+#         sender = 'bront.davis@uky.edu'
+#         msg = 'SpringShare to XML message...'
 
-        smtpObj = smtplib.SMTP(uk_smtp_server)
-        smtpObj.ehlo()
-        smtpObj.starttls()
-        smtpObj.sendmail(sender, 'bront.davis@uky.edu', msg)
-        smtpObj.close()
-        email_results += 'Email sent successfully'
-    except Exception:
-        email_results += 'Email Error: ' + Exception
+#         smtpObj = smtplib.SMTP(uk_smtp_server)
+#         smtpObj.ehlo()
+#         smtpObj.starttls()
+#         smtpObj.sendmail(sender, 'bront.davis@uky.edu', msg)
+#         smtpObj.close()
+#         email_results += 'Email sent successfully'
+#     except Exception:
+#         email_results += 'Email Error: ' + Exception
 
-    return email_results    
+#     return email_results    
 
 
 if __name__ == '__main__':
@@ -206,15 +202,14 @@ if __name__ == '__main__':
         json_data = access_endpoint(token, endpoint)
         if json_data != '':
             json_results = iterate_json(endpoint, json_data, local_directory, today)
-            # msg += json_results
-            print(json_results)
 
     time.sleep(5)
     
     sftp_results = sftp_libguide_xml(sftp_host, sftp_port, sftp_user_id, sftp_password, sftp_target_directory, local_directory)
-    msg += sftp_results
     
-    time.sleep(5)
+    # Jason.Griffith@uky.edu
+    msg = msg + "File created: " + sftp_host + ": " + sftp_target_directory
 
-    email_notification(msg)
+    mail = Mailer("bront.davis@uky.edu", 'Springshare LibGuides to XML', msg)
+    mail.email_notification()
     
