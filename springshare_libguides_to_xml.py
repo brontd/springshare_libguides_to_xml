@@ -1,12 +1,10 @@
 import paramiko, os
 import time
 import smtplib
-from email.mime.text import MIMEText
 from datetime import datetime
 import requests, json
 from pprint import pprint
 import configparser
-import re
 
 # To test locally... 
 # docker-compose up
@@ -44,9 +42,13 @@ def access_endpoint(token, endpoint):
     bearer = 'Bearer ' + token
     auth = {'Authorization': bearer}
     url = base_url + endpoint['path'] + endpoint['expansion']
+    # print('url ', url)
     data = requests.get(url, headers=auth)
     data.close
     json = data.json()
+    # print(json)
+    # for item in json:
+        # print('--------------------item \n', item)    
 
     return json
 
@@ -57,32 +59,16 @@ def iterate_json(endpoint, json_data, filepath, today):
     
     try:
         xml = '<' + endpoint['path'] +'>\n'
-
-        # print("----------\r\n", json_data, "\r\n")
-
         for item in json_data:
             counter += 1
-            # print('\n', item)    
+            # print('--------------------item \n', item)    
 
-            # if item['type_label'] == 'Subject Guide':
-            if item['type_id'] == 3 or item['type_id'] == 4:    
-                
-                # Added topic guides per management... bd
-                # type_id == 3... topic guide
-                # type_id == 4... subject guide
-
+            if item['type_label'] == 'Subject Guide':
                 # common fields
                 xml += '<item>\n'
                 xml += '\t<id>'+str(item['id'])+'</id>\n'
-                
-                # Request per Jason Griffiths... some names/descriptions are coming through with &'s that cause XML load into ALMA to fail. &amp; works... so, regex substitution... bd 
-                name_xml = '\t<name>'+item['name']+'</name>\n'
-                name_corrected = re.sub("& ", "&amp; ", name_xml)                
-                xml += name_corrected
-
-                description_xml = '\t<description>'+item['description']+'</description>\n'
-                description_corrected = re.sub("& ", "&amp; ", description_xml)                
-                xml += description_corrected
+                xml += '\t<name>'+item['name']+'</name>\n'
+                xml += '\t<description>'+item['description']+'</description>\n'
 
                 # guides fields
                 if endpoint['path'] == 'guides':
@@ -149,7 +135,7 @@ def sftp_libguide_xml(sftp_host, sftp_port, sftp_user_id, sftp_password, sftp_de
                     print('local: ' + local_filepath)
                     print('destination: ' + destination_filepath)
                     print('\n\r')
-                    # print('\n\r')
+                    print('\n\r')
                     # sftp.put(local_filepath, destination_dir)
 
         if (match == 1):
@@ -164,51 +150,28 @@ def sftp_libguide_xml(sftp_host, sftp_port, sftp_user_id, sftp_password, sftp_de
     except Exception as err:
         print("Error ", err.args)
 
-    # finally:
-        # print("Finally")
+    finally:
+        print("Finally")
 
 def email_notification(msg): 
-    print('\r\nemail results.............................????? \r\n')
+
     email_results = '\r\nEmail\r\n'    
 
     try:
         uk_smtp_server = 'uksmtp.uky.edu:25'
         sender = 'bront.davis@uky.edu'
-        receiver = 'bront.davis@uky.edu'
-        subject = 'SpringShare to XML message...'
         msg = 'SpringShare to XML message...'
 
         smtpObj = smtplib.SMTP(uk_smtp_server)
-        # smtpObj.ehlo()
-        # smtpObj.starttls()
-        # smtpObj.sendmail(sender, 'bront.davis@uky.edu', msg)
-        # smtpObj.close()
-        # email_results += 'Email sent successfully'
-
-        msg = MIMEText('Hello')
-
-        # me == the sender's email address
-        # you == the recipient's email address
-        msg['Subject'] = 'The contents of file'
-        msg['From'] = 'bront.davis@uky.edu'
-        msg['To'] = 'bront.davis@uky.edu'
-
-        # Send the message via our own SMTP server, but don't include the
-        # envelope header.
-
-        # s = smtplib.SMTP(uk_smtp_server)
-        # s.sendmail(sender, [receiver], msg.as_string())
-        # s.quit()
-
-        smtpObj = smtplib.SMTP(uk_smtp_server)
-        smtpObj.sendmail(sender, [receiver], msg.as_string())
-        smtpObj.quit()
-
+        smtpObj.ehlo()
+        smtpObj.starttls()
+        smtpObj.sendmail(sender, 'bront.davis@uky.edu', msg)
+        smtpObj.close()
+        email_results += 'Email sent successfully'
     except Exception:
-        email_results += 'Email Error'
-        print('email error ', email_results)
+        email_results += 'Email Error: ' + Exception
 
-    # return email_results    
+    return email_results    
 
 
 if __name__ == '__main__':
@@ -231,27 +194,27 @@ if __name__ == '__main__':
     today = now.strftime('%Y_%m_%d')
     msg = 'Date: ' + today + '\r\n'
 
-    # # Acquire token
-    # token = acquire_token()
+    # Acquire token
+    token = acquire_token()
 
-    # if token == 'error':
-    #     msg += 'There was an error acquiring the token. \r\n'    
-    # else:
-    #     # guides, az, subjects
-    #     endpoint = { 'path':'guides', 'expansion': '?expand=owner&status[0,1,2,3]&pages'}
+    if token == 'error':
+        msg += 'There was an error acquiring the token. \r\n'    
+    else:
+        # guides, az, subjects
+        endpoint = { 'path':'guides', 'expansion': '?expand=owner&status[0,1,2,3]&pages'}
         
-    #     json_data = access_endpoint(token, endpoint)
-    #     if json_data != '':
-    #         json_results = iterate_json(endpoint, json_data, local_directory, today)
-            
-    # time.sleep(5)
+        json_data = access_endpoint(token, endpoint)
+        if json_data != '':
+            json_results = iterate_json(endpoint, json_data, local_directory, today)
+            # msg += json_results
+            print(json_results)
+
+    time.sleep(5)
     
-    # sftp_results = sftp_libguide_xml(sftp_host, sftp_port, sftp_user_id, sftp_password, sftp_target_directory, local_directory)
+    sftp_results = sftp_libguide_xml(sftp_host, sftp_port, sftp_user_id, sftp_password, sftp_target_directory, local_directory)
+    msg += sftp_results
     
-    # if (sftp_results is not None):
-    #     msg += sftp_results
-    
-    # time.sleep(5)
-    print('Attempt to email... \r\n')
+    time.sleep(5)
+
     email_notification(msg)
     
