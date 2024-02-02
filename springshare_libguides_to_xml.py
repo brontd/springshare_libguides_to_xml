@@ -3,10 +3,10 @@ import paramiko, os
 import time
 # import smtplib
 from datetime import datetime
-import requests
-# , json
+import requests, json
 from pprint import pprint
 import configparser
+import re
 
 # To test locally... 
 # docker-compose up
@@ -26,7 +26,6 @@ base_url = 'https://lgapi-us.libapps.com/1.2/'
 base_token_url = 'https://lgapi-us.libapps.com/1.2/oauth/token'
 
 def acquire_token():
-    # print('acquire token()')
     headers = {'client_id':'680','client_secret':'e5cb884b62605bea68c1e8575434823b','grant_type':'client_credentials'}
     token_request = requests.post(base_token_url, data=headers)
     token_json = token_request.json()
@@ -40,7 +39,6 @@ def acquire_token():
     return token    
 
 def access_endpoint(token, endpoint):
-    print('access_endpoint() with ' + token)
     bearer = 'Bearer ' + token
     auth = {'Authorization': bearer}
     url = base_url + endpoint['path'] + endpoint['expansion']
@@ -50,7 +48,7 @@ def access_endpoint(token, endpoint):
 
     return json
 
-def iterate_json(endpoint, json_data, filepath, today):
+def iterate_json(endpoint, json_data, local_directory, today):
     
     counter = 1
     json_results = '\r\nJSON\r\\n'
@@ -60,12 +58,25 @@ def iterate_json(endpoint, json_data, filepath, today):
         for item in json_data:
             counter += 1
 
-            if item['type_label'] == 'Subject Guide':
+            # Added topic guides per management... bd
+            # type_id == 3... topic guide
+            # type_id == 4... subject guide
+            if item['type_id'] == 3 or item['type_id'] == 4:    
+                
                 # common fields
                 xml += '<item>\n'
                 xml += '\t<id>'+str(item['id'])+'</id>\n'
-                xml += '\t<name>'+item['name']+'</name>\n'
-                xml += '\t<description>'+item['description']+'</description>\n'
+                # xml += '\t<name>'+item['name']+'</name>\n'
+                # xml += '\t<description>'+item['description']+'</description>\n'
+                
+                # Request per Jason Griffiths... some names/descriptions are coming through with &'s that cause XML load into ALMA to fail. &amp; works... so, regex substitution... bd 
+                name_xml = '\t<name>'+item['name']+'</name>\n'
+                name_corrected = re.sub("& ", "&amp; ", name_xml)                
+                xml += name_corrected
+
+                description_xml = '\t<description>'+item['description']+'</description>\n'
+                description_corrected = re.sub("& ", "&amp; ", description_xml)                
+                xml += description_corrected
 
                 # guides fields
                 if endpoint['path'] == 'guides':
@@ -98,8 +109,10 @@ def iterate_json(endpoint, json_data, filepath, today):
         xml += '</' + endpoint['path'] + '>\n'
 
         # Write xml to file...
-        # with open('libguides/' + endpoint['path']+'_'+today+'.xml', 'w') as xml_file:    
-        with open(filepath + endpoint['path']+'_'+today+'.xml', 'w') as xml_file:    
+        filepath = os.path.join(os.path.dirname(__file__), local_directory)
+        # config_file_path = os.path.join(os.path.dirname(__file__), 'config.ini')
+
+        with open(filepath + 'lib_guide.xml', 'w') as xml_file:    
             xml_file.write(xml)
             xml_file.close()
 
@@ -117,8 +130,8 @@ def sftp_libguide_xml(sftp_host, sftp_port, sftp_user_id, sftp_password, sftp_de
         ssh_client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
         ssh_client.connect(sftp_host, sftp_port, username=sftp_user_id, password=sftp_password)
         sftp = ssh_client.open_sftp()
-        now = datetime.now() # current date and time
-        current_filename = 'guides_' + now.strftime('%Y_%m_%d') + '.xml'
+        # now = datetime.now() # current date and time
+        current_filename = 'lib_guide.xml'
         local_filepath = os.path.join(local_dir, current_filename)
         destination_filepath = os.path.join(sftp_destination_dir, current_filename)
         match = 0
@@ -127,89 +140,67 @@ def sftp_libguide_xml(sftp_host, sftp_port, sftp_user_id, sftp_password, sftp_de
             for entry in entries:       
                 if(entry.name == current_filename):
                     match = 1
-                    print('entry: ' + entry.name + ' current_file: ' + current_filename) 
-                    print('local: ' + local_filepath)
-                    print('destination: ' + destination_filepath)
-                    print('\n\r')
-                    print('\n\r')
-                    # sftp.put(local_filepath, destination_dir)
 
         if (match == 1):
+        
             sftp.put(local_filepath, destination_filepath)
             sftp_results += 'local file: ' + local_filepath + '\r\ndestination file: ' + destination_filepath + '\r\n'  
+        
         else: 
-            # print('No match file match found')    
+        
             sftp_results += 'No file match found\r\n'
+        
         # Close
         if sftp: sftp.close()
 
     except Exception as err:
         print("Error ", err.args)
 
-    finally:
-        # print("Finally")
-
-# def email_notification(msg): 
-
-#     email_results = '\r\nEmail\r\n'    
-
-#     try:
-#         uk_smtp_server = 'uksmtp.uky.edu:25'
-#         sender = 'bront.davis@uky.edu'
-#         msg = 'SpringShare to XML message...'
-
-#         smtpObj = smtplib.SMTP(uk_smtp_server)
-#         smtpObj.ehlo()
-#         smtpObj.starttls()
-#         smtpObj.sendmail(sender, 'bront.davis@uky.edu', msg)
-#         smtpObj.close()
-#         email_results += 'Email sent successfully'
-#     except Exception:
-#         email_results += 'Email Error: ' + Exception
-
-#     return email_results    
-
-
 if __name__ == '__main__':
 
-    print("TESTING TESTING TESTING TESTING TESTING \n")
+    try: 
+        # Access configuration information
+        cfg = configparser.ConfigParser()
+        config_file_path = os.path.join(os.path.dirname(__file__), 'config.ini')
+        cfg.read(config_file_path)
+        sftp_host = cfg.get('DEFAULT', 'sftp_host')
+        sftp_port = cfg.get('DEFAULT', 'sftp_port')
+        sftp_user_id = cfg.get('DEFAULT', 'sftp_user_id')
+        sftp_password = cfg.get('DEFAULT', 'sftp_password')
+        sftp_target_directory = cfg.get('DEFAULT', 'sftp_target_directory')
+        local_dir = cfg.get('DEFAULT', 'local_directory')
+        local_directory = os.path.join(os.path.dirname(__file__), local_dir)
+        email_recipient = cfg.get('DEFAULT', 'email_recipient')
+        email_sender = cfg.get('DEFAULT', 'email_sender')
+        email_title = cfg.get('DEFAULT', 'email_title')
 
-    # Access configuration information
-    cfg = configparser.ConfigParser()
-    cfg.read('config.ini')
+        # Current date
+        now = datetime.now()
+        today = now.strftime('%Y_%m_%d')
+        msg = 'Date: ' + today + '\r\n'
 
-    sftp_host = cfg.get('DEFAULT', 'sftp_host')
-    sftp_port = cfg.get('DEFAULT', 'sftp_port')
-    sftp_user_id = cfg.get('DEFAULT', 'sftp_user_id')
-    sftp_password = cfg.get('DEFAULT', 'sftp_password')
-    sftp_target_directory = cfg.get('DEFAULT', 'sftp_target_directory')
-    local_directory = cfg.get('DEFAULT', 'local_directory')
+        # Acquire token
+        token = acquire_token()
 
-    # Current date
-    now = datetime.now()
-    today = now.strftime('%Y_%m_%d')
-    msg = 'Date: ' + today + '\r\n'
-
-    # Acquire token
-    token = acquire_token()
-
-    if token == 'error':
-        msg += 'There was an error acquiring the token. \r\n'    
-    else:
-        # guides, az, subjects
-        endpoint = { 'path':'guides', 'expansion': '?expand=owner&status[0,1,2,3]&pages'}
+        if token == 'error':
+            msg += 'There was an error acquiring the token. \r\n'    
+        else:
+            # guides, az, subjects
+            endpoint = { 'path':'guides', 'expansion': '?expand=owner&status[0,1,2,3]&pages'}
         
-        json_data = access_endpoint(token, endpoint)
-        if json_data != '':
-            json_results = iterate_json(endpoint, json_data, local_directory, today)
+            json_data = access_endpoint(token, endpoint)
+            if json_data != '':
+                json_results = iterate_json(endpoint, json_data, local_directory, today)
 
-    time.sleep(5)
+        time.sleep(3)
     
-    sftp_results = sftp_libguide_xml(sftp_host, sftp_port, sftp_user_id, sftp_password, sftp_target_directory, local_directory)
-    
-    # Jason.Griffith@uky.edu
-    msg = msg + "File created: " + sftp_host + ": " + sftp_target_directory
+        sftp_results = sftp_libguide_xml(sftp_host, sftp_port, sftp_user_id, sftp_password, sftp_target_directory, local_directory)
+        msg = msg + "File created: " + sftp_host + ": " + sftp_target_directory
 
-    mail = Mailer("bront.davis@uky.edu", 'Springshare LibGuides to XML', msg)
-    mail.email_notification()
+        mail = Mailer(email_sender, email_recipient, email_title, msg)
+        mail.email_notification()
     
+    except Exception as err1:
+            print("Error 1 ", err1) 
+
+
